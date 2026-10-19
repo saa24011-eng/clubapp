@@ -1,0 +1,252 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>部活動活動記録アプリ</title>
+  <!-- Tailwind CSS CDN (スマートフォン対応・UI装飾用) -->
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="bg-slate-100 min-h-screen text-slate-800">
+
+  <div class="max-w-2xl mx-auto p-4">
+    <!-- ヘッダー -->
+    <header class="flex justify-between items-center bg-white p-4 rounded-lg shadow mb-6">
+      <h1 class="text-xl font-bold text-blue-600">部活動活動記録</h1>
+      <div id="auth-status">
+        <button id="login-btn" class="bg-blue-600 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded transition">
+          Googleでログイン
+        </button>
+        <div id="user-info" class="hidden flex items-center gap-3">
+          <span id="user-name" class="text-sm font-medium"></span>
+          <button id="logout-btn" class="bg-gray-500 hover:bg-gray-600 text-white text-sm py-1 px-3 rounded transition">
+            ログアウト
+          </button>
+        </div>
+      </div>
+    </header>
+
+    <!-- 未ログイン時の画面（閲覧・操作をブロック） -->
+    <div id="logged-out-view" class="bg-white p-8 rounded-lg shadow text-center">
+      <p class="text-gray-600 mb-4">このアプリを使用するにはGoogleアカウントでのログインが必要です。</p>
+      <p class="text-sm text-gray-400">右上の「Googleでログイン」ボタンを押してください。</p>
+    </div>
+
+    <!-- ログイン後のメインコンテンツ -->
+    <main id="logged-in-view" class="hidden space-y-6">
+      
+      <!-- 5項目入力フォーム -->
+      <section class="bg-white p-6 rounded-lg shadow">
+        <h2 class="text-lg font-bold mb-4 border-b pb-2">新規活動記録の登録</h2>
+        <form id="record-form" class="space-y-4">
+          <div>
+            <label class="block text-sm font-medium mb-1">部活動名 <span class="text-red-500">*</span></label>
+            <input type="text" id="club-name" required placeholder="例: サッカー部" class="w-full border rounded p-2 focus:ring-2 focus:ring-blue-500 outline-none">
+          </div>
+          <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div>
+              <label class="block text-sm font-medium mb-1">活動日 <span class="text-red-500">*</span></label>
+              <input type="date" id="activity-date" required class="w-full border rounded p-2 focus:ring-2 focus:ring-blue-500 outline-none">
+            </div>
+            <div>
+              <label class="block text-sm font-medium mb-1">参加人数 (人) <span class="text-red-500">*</span></label>
+              <input type="number" id="member-count" min="1" required placeholder="例: 15" class="w-full border rounded p-2 focus:ring-2 focus:ring-blue-500 outline-none">
+            </div>
+          </div>
+          <div>
+            <label class="block text-sm font-medium mb-1">活動内容 <span class="text-red-500">*</span></label>
+            <textarea id="activity-content" rows="3" required placeholder="練習メニューや試合結果など" class="w-full border rounded p-2 focus:ring-2 focus:ring-blue-500 outline-none"></textarea>
+          </div>
+          <div>
+            <label class="block text-sm font-medium mb-1">反省・気づき <span class="text-red-500">*</span></label>
+            <textarea id="reflection" rows="2" required placeholder="成果や次回の課題など" class="w-full border rounded p-2 focus:ring-2 focus:ring-blue-500 outline-none"></textarea>
+          </div>
+          <button type="submit" class="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-2.5 rounded shadow transition">
+            記録する
+          </button>
+        </form>
+      </section>
+
+      <!-- 一覧表示エリア -->
+      <section class="bg-white p-6 rounded-lg shadow">
+        <h2 class="text-lg font-bold mb-4 border-b pb-2">活動記録一覧</h2>
+        <div id="records-list" class="space-y-4">
+          <p class="text-gray-400 text-center py-4">読み込み中...</p>
+        </div>
+      </section>
+
+    </main>
+  </div>
+
+  <!-- Firebase JavaScript SDK (v10 Modular) -->
+  <script type="module">
+    import { initializeApp } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js";
+    import { 
+      getAuth, 
+      GoogleAuthProvider, 
+      signInWithPopup, 
+      signOut, 
+      onAuthStateChanged 
+    } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-auth.js";
+    import { 
+      getFirestore, 
+      collection, 
+      addDoc, 
+      getDocs, 
+      query, 
+      orderBy, 
+      deleteDoc, 
+      doc, 
+      serverTimestamp 
+    } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js";
+
+    // ご提示いただいたFirebase設定情報
+    const firebaseConfig = {
+      apiKey: "AIzaSyCSFM8ViJu3dkEkpL_ojPKUgPtGg0rUWmI",
+      authDomain: "task8-81660.firebaseapp.com",
+      projectId: "task8-81660",
+      storageBucket: "task8-81660.firebasestorage.app",
+      messagingSenderId: "740486877887",
+      appId: "1:740486877887:web:ad185456364a2ec7daec0a"
+    };
+
+    // 初期化
+    const app = initializeApp(firebaseConfig);
+    const auth = getAuth(app);
+    const db = getFirestore(app);
+    const provider = new GoogleAuthProvider();
+
+    // DOM要素参照
+    const loginBtn = document.getElementById('login-btn');
+    const logoutBtn = document.getElementById('logout-btn');
+    const loggedInView = document.getElementById('logged-in-view');
+    const loggedOutView = document.getElementById('logged-out-view');
+    const userInfo = document.getElementById('user-info');
+    const userName = document.getElementById('user-name');
+    const recordForm = document.getElementById('record-form');
+    const recordsList = document.getElementById('records-list');
+
+    // 日付選択の初期値を今日に設定
+    document.getElementById('activity-date').valueAsDate = new Date();
+
+    // --- Googleログイン処理 ---
+    loginBtn.addEventListener('click', async () => {
+      try {
+        await signInWithPopup(auth, provider);
+      } catch (error) {
+        alert("ログインエラー: " + error.message);
+      }
+    });
+
+    // --- ログアウト処理 ---
+    logoutBtn.addEventListener('click', async () => {
+      await signOut(auth);
+    });
+
+    // --- ログイン状態監視 ---
+    onAuthStateChanged(auth, (user) => {
+      if (user) {
+        loggedInView.classList.remove('hidden');
+        loggedOutView.classList.add('hidden');
+        userInfo.classList.remove('hidden');
+        loginBtn.classList.add('hidden');
+        userName.textContent = user.displayName || user.email;
+        loadRecords();
+      } else {
+        loggedInView.classList.add('hidden');
+        loggedOutView.classList.remove('hidden');
+        userInfo.classList.add('hidden');
+        loginBtn.classList.remove('hidden');
+      }
+    });
+
+    // --- データ登録処理 (Firestore) ---
+    recordForm.addEventListener('submit', async (e) => {
+      e.preventDefault();
+
+      const newRecord = {
+        clubName: document.getElementById('club-name').value,
+        activityDate: document.getElementById('activity-date').value,
+        memberCount: Number(document.getElementById('member-count').value),
+        activityContent: document.getElementById('activity-content').value,
+        reflection: document.getElementById('reflection').value,
+        authorName: auth.currentUser ? auth.currentUser.displayName : "不明",
+        createdAt: serverTimestamp()
+      };
+
+      try {
+        await addDoc(collection(db, "clubRecords"), newRecord);
+        recordForm.reset();
+        document.getElementById('activity-date').valueAsDate = new Date();
+        loadRecords();
+      } catch (error) {
+        alert("保存失敗: " + error.message);
+      }
+    });
+
+    // --- データ読み込み・表示処理 ---
+    async function loadRecords() {
+      recordsList.innerHTML = '<p class="text-gray-400 text-center py-4">読み込み中...</p>';
+      try {
+        const q = query(collection(db, "clubRecords"), orderBy("createdAt", "desc"));
+        const querySnapshot = await getDocs(q);
+        
+        if (querySnapshot.empty) {
+          recordsList.innerHTML = '<p class="text-gray-500 text-center py-4">まだ記録がありません。</p>';
+          return;
+        }
+
+        recordsList.innerHTML = '';
+        querySnapshot.forEach((docSnap) => {
+          const data = docSnap.data();
+          const card = document.createElement('div');
+          card.className = "border rounded-lg p-4 bg-slate-50 space-y-2 relative shadow-sm";
+          
+          card.innerHTML = `
+            <div class="flex justify-between items-start border-b pb-2">
+              <div>
+                <span class="text-xs bg-blue-100 text-blue-800 font-semibold px-2 py-0.5 rounded">${escapeHtml(data.clubName)}</span>
+                <span class="text-sm text-gray-500 ml-2">📅 ${escapeHtml(data.activityDate)}</span>
+              </div>
+              <span class="text-sm font-medium text-gray-600">👥 ${data.memberCount}名</span>
+            </div>
+            <div>
+              <p class="text-xs text-gray-400 font-medium">【活動内容】</p>
+              <p class="text-sm text-gray-800 whitespace-pre-wrap">${escapeHtml(data.activityContent)}</p>
+            </div>
+            <div>
+              <p class="text-xs text-gray-400 font-medium">【反省・気づき】</p>
+              <p class="text-sm text-gray-700 whitespace-pre-wrap">${escapeHtml(data.reflection)}</p>
+            </div>
+            <div class="flex justify-between items-center text-xs text-gray-400 pt-2 border-t">
+              <span>記録者: ${escapeHtml(data.authorName || '不明')}</span>
+              <button onclick="deleteRecord('${docSnap.id}')" class="text-red-500 hover:underline">削除</button>
+            </div>
+          `;
+          recordsList.appendChild(card);
+        });
+      } catch (error) {
+        recordsList.innerHTML = `<p class="text-red-500 text-center py-4">データ取得エラー: ${error.message}</p>`;
+      }
+    }
+
+    // XSS対策用エスケープ
+    function escapeHtml(str) {
+      if (!str) return '';
+      return String(str).replace(/[&<>"']/g, (m) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[m]);
+    }
+
+    // 削除機能
+    window.deleteRecord = async (id) => {
+      if (confirm("この記録を削除しますか？")) {
+        try {
+          await deleteDoc(doc(db, "clubRecords", id));
+          loadRecords();
+        } catch (error) {
+          alert("削除失敗: " + error.message);
+        }
+      }
+    };
+  </script>
+</body>
+</html>
